@@ -1,0 +1,40 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: movie-ticket-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: movie_ticket
+      MYSQL_USER: movie_user
+      MYSQL_PASSWORD: movie_pass
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: movie-ticket-app
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: movie_user
+      DB_PASSWORD: movie_pass
+      DB_NAME: movie_ticket
+      TMDB_ACCESS_TOKEN: ${TMDB_ACCESS_TOKEN}
+      TMDB_API_KEY: ${TMDB_API_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
