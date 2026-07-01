@@ -30,6 +30,8 @@ services:
       DB_NAME: movie_ticket
       TMDB_ACCESS_TOKEN: ${TMDB_ACCESS_TOKEN}
       TMDB_API_KEY: ${TMDB_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
     ports:
       - "3000:3000"
     depends_on:

@@ -7,6 +7,12 @@ import {
   validateRegistration,
   verifyAccessToken
 } from "./domain/auth.js";
+import {
+  buildAssistantSystemPrompt,
+  buildMovieContext,
+  validateChatMessages
+} from "./domain/assistant.js";
+import { requestDeepSeek } from "./domain/deepseek.js";
 import { buildDemoReviews } from "./domain/demo-reviews.js";
 import { validateReview } from "./domain/reviews.js";
 import { fetchPopularMovies } from "./domain/tmdb.js";
@@ -284,6 +290,39 @@ api.get("/movies/recommendations", async (_req, res, next) => {
   try {
     const movies = await query("SELECT * FROM movies WHERE status = '上映中'");
     res.json({ data: buildRecommendations(movies) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/assistant/chat", requireAuth, requireRole("user"), async (req, res, next) => {
+  try {
+    const messages = validateChatMessages(req.body.messages);
+    const movies = await query(
+      `SELECT m.id, m.title, m.release_year, m.genre, m.rating, m.heat,
+              LEFT(m.summary, 180) AS summary,
+              COUNT(r.id) AS review_count,
+              ROUND(AVG(r.rating), 1) AS review_rating,
+              GROUP_CONCAT(
+                LEFT(r.content, 90)
+                ORDER BY r.id DESC SEPARATOR ' | '
+              ) AS review_samples
+       FROM movies m
+       LEFT JOIN reviews r ON r.movie_id = m.id
+       WHERE m.status = '上映中'
+       GROUP BY m.id
+       ORDER BY m.heat DESC, m.rating DESC
+       LIMIT 50`
+    );
+    const systemPrompt = buildAssistantSystemPrompt(buildMovieContext(movies));
+    const answer = await requestDeepSeek({
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+      systemPrompt,
+      messages
+    });
+
+    res.json({ data: { answer } });
   } catch (error) {
     next(error);
   }

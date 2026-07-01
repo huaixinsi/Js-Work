@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, setAuthToken } from "./api";
-import type { AdminStats, Movie, Order, Review, Seat, Showtime, User } from "./types";
+import type { AdminStats, ChatMessage, Movie, Order, Review, Seat, Showtime, User } from "./types";
 
-type Tab = "home" | "ticket" | "profile" | "admin";
+type Tab = "home" | "ticket" | "assistant" | "profile" | "admin";
 type LoginRole = "user" | "admin";
 type AuthMode = "login" | "register";
 
@@ -12,6 +12,19 @@ const statusLabel: Record<string, string> = {
   locked: "锁定",
   broken: "故障"
 };
+
+const assistantPrompts = [
+  "最近有什么热门电影值得看？",
+  "本地口碑最好的电影有哪些？",
+  "我想看一部轻松但有想象力的电影"
+];
+
+const initialAssistantMessages: ChatMessage[] = [
+  {
+    role: "assistant",
+    content: "你好，我会结合当前片库、评分和本地评论样本帮你挑电影。"
+  }
+];
 
 function parseTags(tags: User["preference_tags"]) {
   return Array.isArray(tags) ? tags : JSON.parse(tags || "[]");
@@ -58,6 +71,9 @@ function App() {
     expiresAt: string;
   } | null>(null);
   const [message, setMessage] = useState("请先登录");
+  const [assistantMessages, setAssistantMessages] = useState<ChatMessage[]>(initialAssistantMessages);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantLoading, setAssistantLoading] = useState(false);
 
   const selectedMovie = movies.find((movie) => movie.id === selectedMovieId) ?? movies[0];
   const selectedShowtime = showtimes.find((showtime) => showtime.id === selectedShowtimeId) ?? null;
@@ -158,6 +174,9 @@ function App() {
     setOrders([]);
     setAdminStats(null);
     setCheckout(null);
+    setAssistantMessages(initialAssistantMessages);
+    setAssistantInput("");
+    setAssistantLoading(false);
     setMessage("已退出登录");
   }
 
@@ -237,6 +256,36 @@ function App() {
     setMessage(`已同步 ${result.synced} 部 TMDB 近两年热门电影`);
   }
 
+  async function sendAssistantMessage(question = assistantInput) {
+    const content = question.trim();
+    if (!content || assistantLoading) return;
+
+    const userMessage: ChatMessage = { role: "user", content };
+    const visibleMessages = [...assistantMessages, userMessage];
+    const requestMessages = visibleMessages.slice(-8);
+    setAssistantMessages(visibleMessages);
+    setAssistantInput("");
+    setAssistantLoading(true);
+
+    try {
+      const result = await api.assistant(requestMessages);
+      setAssistantMessages((current) => [
+        ...current,
+        { role: "assistant", content: result.answer }
+      ]);
+    } catch (error) {
+      setAssistantMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content: error instanceof Error ? error.message : "电影助手暂时无法回答，请稍后重试。"
+        }
+      ]);
+    } finally {
+      setAssistantLoading(false);
+    }
+  }
+
   if (!user) {
     return (
       <main>
@@ -295,6 +344,7 @@ function App() {
       : [
           ["home", "首页推荐"],
           ["ticket", "选座购票"],
+          ["assistant", "电影助手"],
           ["profile", "用户中心"]
         ];
 
@@ -319,12 +369,30 @@ function App() {
       <section className="hero">
         <div>
           <p>{message}</p>
-          <h2>{user.role === "admin" ? "运营控制台" : selectedMovie?.title ?? "加载中"}</h2>
-          <span>{user.role === "admin" ? "集中管理票房统计、用户、订单与数据报表。" : selectedMovie?.summary}</span>
+          <h2>
+            {user.role === "admin"
+              ? "运营控制台"
+              : tab === "assistant"
+                ? "电影小助手"
+                : selectedMovie?.title ?? "加载中"}
+          </h2>
+          <span>
+            {user.role === "admin"
+              ? "集中管理票房统计、用户、订单与数据报表。"
+              : tab === "assistant"
+                ? "结合当前片库、评分与本地评论样本，为你整理下一部想看的电影。"
+                : selectedMovie?.summary}
+          </span>
         </div>
         <div className="hero-panel">
-          <strong>{user.role === "admin" ? adminStats?.summary.orderCount ?? 0 : selectedMovie?.rating}</strong>
-          <span>{user.role === "admin" ? "订单数" : "综合评分"}</span>
+          <strong>
+            {user.role === "admin"
+              ? adminStats?.summary.orderCount ?? 0
+              : tab === "assistant"
+                ? "AI"
+                : selectedMovie?.rating}
+          </strong>
+          <span>{user.role === "admin" ? "订单数" : tab === "assistant" ? "片单顾问" : "综合评分"}</span>
         </div>
       </section>
 
@@ -415,6 +483,65 @@ function App() {
               </div>
             )}
           </div>
+        </section>
+      )}
+
+      {tab === "assistant" && user.role === "user" && (
+        <section className="assistant-shell">
+          <div className="assistant-heading">
+            <div>
+              <span className="eyebrow">DeepSeek Movie Guide</span>
+              <h3>今天想看点什么？</h3>
+            </div>
+            <span>{movies.length} 部本地电影可供参考</span>
+          </div>
+
+          <div className="assistant-prompts">
+            {assistantPrompts.map((prompt) => (
+              <button
+                type="button"
+                key={prompt}
+                disabled={assistantLoading}
+                onClick={() => sendAssistantMessage(prompt)}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          <div className="assistant-transcript" aria-live="polite">
+            {assistantMessages.map((chatMessage, index) => (
+              <div className={`chat-message ${chatMessage.role}`} key={`${chatMessage.role}-${index}`}>
+                <strong>{chatMessage.role === "user" ? user.nickname : "电影助手"}</strong>
+                <p>{chatMessage.content}</p>
+              </div>
+            ))}
+            {assistantLoading && (
+              <div className="chat-message assistant pending">
+                <strong>电影助手</strong>
+                <p>正在整理片单...</p>
+              </div>
+            )}
+          </div>
+
+          <form
+            className="assistant-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void sendAssistantMessage();
+            }}
+          >
+            <textarea
+              aria-label="向电影助手提问"
+              maxLength={500}
+              placeholder="说说你想看的类型、情绪或某部电影..."
+              value={assistantInput}
+              onChange={(event) => setAssistantInput(event.target.value)}
+            />
+            <button type="submit" disabled={assistantLoading || !assistantInput.trim()}>
+              {assistantLoading ? "思考中" : "发送"}
+            </button>
+          </form>
         </section>
       )}
 

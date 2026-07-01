@@ -41,6 +41,11 @@ export interface Review {
   created_at: string;
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface Showtime {
   id: number;
   movie_id: number;

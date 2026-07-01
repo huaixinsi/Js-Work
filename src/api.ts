@@ -1,4 +1,4 @@
-import type { AdminStats, Movie, Order, Review, Seat, Showtime, User } from "./types";
+import type { AdminStats, ChatMessage, Movie, Order, Review, Seat, Showtime, User } from "./types";
 
 let authToken = window.localStorage.getItem("movie_ticket_token") ?? "";
 
@@ -52,6 +52,11 @@ export const api = {
     "/movies/recommendations"
   ),
   movie: (id: number) => request<{ movie: Movie; reviews: Review[] }>(`/movies/${id}`),
+  assistant: (messages: ChatMessage[]) =>
+    request<{ answer: string }>("/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages })
+    }),
   syncTmdb: () => request<{ synced: number }>("/movies/sync-tmdb", { method: "POST" }),
   createReview: (movieId: number, payload: { rating: number; content: string }) =>
     request<Review>(`/movies/${movieId}/reviews`, {

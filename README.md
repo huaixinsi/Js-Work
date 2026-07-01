@@ -8,6 +8,7 @@
 
 - JWT 登录与用户注册
 - 首页电影推荐：热门、同城热映、评分最高
+- DeepSeek 电影助手：结合本地片库、评分和评论样本回答热门、风评与推荐问题
 - TMDB 近两年热门电影展示，单次最多同步 60 部
 - 电影详情：海报、简介、评分、上映年份、本地评论区
 - 本地评论：用户可对每部电影打分并发布短评
@@ -70,6 +71,8 @@ cp .env.example .env
 ```env
 TMDB_ACCESS_TOKEN=你的_TMDB_Read_Access_Token
 TMDB_API_KEY=你的_TMDB_API_Key
+DEEPSEEK_API_KEY=你的_DeepSeek_API_Key
+DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
 ## 快速启动
@@ -162,6 +165,7 @@ npm run server:dev
 - `GET /api/movies/:id`：电影详情和本地评论
 - `POST /api/movies/:id/reviews`：发布本地评论
 - `POST /api/movies/sync-tmdb`：管理员同步 TMDB 近两年热门电影
+- `POST /api/assistant/chat`：普通用户使用本地电影数据向 DeepSeek 电影助手提问
 
 票务：
 
@@ -182,6 +186,8 @@ npm run server:dev
 - Git 仓库只提交 `.env.example` 占位配置
 - 普通用户无法访问管理员接口
 - 管理员接口由 JWT 角色校验保护
+- DeepSeek 密钥只在服务端环境变量中使用，电影助手接口仅允许普通登录用户访问
+- 电影助手会将本地评论标记为演示样本，不将其描述为全网真实口碑
 - TMDB 只作为电影资料来源，本地评论、订单、场次和座位都保存在 MySQL
 
 ## 说明
