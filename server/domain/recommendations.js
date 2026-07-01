@@ -1,5 +1,5 @@
 function takeSorted(movies, field) {
-  return [...movies].sort((a, b) => b[field] - a[field]).slice(0, 6);
+  return [...movies].sort((a, b) => b[field] - a[field]).slice(0, 12);
 }
 
 export function buildRecommendations(movies) {

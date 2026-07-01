@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
-import { api, syncTmdbNowPlaying } from "./routes.js";
+import { api, syncTmdbPopularMovies } from "./routes.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
@@ -27,9 +27,9 @@ app.use((error: Error, _req: express.Request, res: express.Response, _next: expr
 
 app.listen(port, () => {
   console.log(`Movie ticket system is running on http://localhost:${port}`);
-  if (process.env.TMDB_ACCESS_TOKEN) {
-    syncTmdbNowPlaying()
-      .then((count) => console.log(`Synced ${count} TMDB now-playing movies`))
+  if (process.env.TMDB_ACCESS_TOKEN || process.env.TMDB_API_KEY) {
+    syncTmdbPopularMovies()
+      .then((count) => console.log(`Synced ${count} popular TMDB movies from the last two years`))
       .catch((error) => console.warn(`TMDB sync skipped: ${error.message}`));
   }
 });

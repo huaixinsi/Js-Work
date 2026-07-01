@@ -234,7 +234,7 @@ function App() {
     const result = await api.syncTmdb();
     await refreshCatalog();
     setAdminStats(await api.adminStats());
-    setMessage(`已同步 ${result.synced} 部 TMDB 真实热映电影`);
+    setMessage(`已同步 ${result.synced} 部 TMDB 近两年热门电影`);
   }
 
   if (!user) {
@@ -438,7 +438,7 @@ function App() {
           <Metric label="用户增长" value={adminStats.userGrowth.at(-1)?.toString() ?? "0"} />
           <div className="panel">
             <h3>热门影片排行</h3>
-            <button className="sync-button" onClick={syncRealMovies}>同步真实热映电影</button>
+            <button className="sync-button" onClick={syncRealMovies}>同步近两年热门电影</button>
             {adminStats.popularMovies.map((movie) => (
               <p className="rank" key={movie.title}><span>{movie.title}</span><b>{movie.orders} 单</b></p>
             ))}

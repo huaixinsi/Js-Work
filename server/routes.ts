@@ -7,8 +7,9 @@ import {
   validateRegistration,
   verifyAccessToken
 } from "./domain/auth.js";
+import { buildDemoReviews } from "./domain/demo-reviews.js";
 import { validateReview } from "./domain/reviews.js";
-import { fetchNowPlayingMovies } from "./domain/tmdb.js";
+import { fetchPopularMovies } from "./domain/tmdb.js";
 import { calculateOrderTotal, createTicketCode } from "./domain/ticketing.js";
 import { buildRecommendations } from "./domain/recommendations.js";
 import type { AuthUser, OrderPayload, Role } from "./types.js";
@@ -83,12 +84,48 @@ async function ensureShowtimeForMovie(connection: Awaited<ReturnType<typeof pool
   await createSeatsForShowtime(connection, showtimeResult.insertId);
 }
 
-export async function syncTmdbNowPlaying() {
-  const movies = await fetchNowPlayingMovies(process.env.TMDB_ACCESS_TOKEN, process.env.TMDB_API_KEY);
+async function ensureDemoReviews(
+  connection: Awaited<ReturnType<typeof pool.getConnection>>,
+  movieId: number,
+  title: string,
+  users: Array<{ id: number; username: string }>
+) {
+  const reviews = buildDemoReviews(movieId, title, users);
+
+  for (const review of reviews) {
+    const createdAt = new Date(Date.now() - review.daysAgo * 24 * 60 * 60 * 1000);
+    await connection.execute(
+      `INSERT INTO reviews (movie_id, user_id, rating, content, image_url, created_at)
+       SELECT ?, ?, ?, ?, NULL, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM reviews WHERE movie_id = ? AND content = ?
+       )`,
+      [
+        movieId,
+        review.userId,
+        review.rating,
+        review.content,
+        createdAt,
+        movieId,
+        review.content
+      ]
+    );
+  }
+}
+
+export async function syncTmdbPopularMovies() {
+  const movies = await fetchPopularMovies(process.env.TMDB_ACCESS_TOKEN, process.env.TMDB_API_KEY);
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
+    const [demoUserRows] = await connection.execute(
+      `SELECT id, username
+       FROM users
+       WHERE username IN ('demo', 'vipuser', 'plain')
+       ORDER BY FIELD(username, 'demo', 'vipuser', 'plain')`
+    );
+    const demoUsers = demoUserRows as Array<{ id: number; username: string }>;
 
     for (const [index, movie] of movies.entries()) {
       const [result] = await connection.execute<ResultSetHeader>(
@@ -124,19 +161,25 @@ export async function syncTmdbNowPlaying() {
           movie.summary
         ]
       );
-      const movieId =
-        result.insertId ||
-        (
-          await query<{ id: number }>("SELECT id FROM movies WHERE tmdb_id = :tmdbId", {
-            tmdbId: movie.tmdbId
-          })
-        )[0].id;
+      let movieId = result.insertId;
+      if (!movieId) {
+        const [existingMovieRows] = await connection.execute(
+          "SELECT id FROM movies WHERE tmdb_id = ?",
+          [movie.tmdbId]
+        );
+        movieId = (existingMovieRows as Array<{ id: number }>)[0].id;
+      }
 
       await ensureShowtimeForMovie(connection, movieId, index);
     }
 
+    const [allMovieRows] = await connection.execute("SELECT id, title FROM movies ORDER BY id");
+    for (const movie of allMovieRows as Array<{ id: number; title: string }>) {
+      await ensureDemoReviews(connection, movie.id, movie.title, demoUsers);
+    }
+
     await connection.execute("INSERT INTO admin_logs (action, operator) VALUES (?, ?)", [
-      `同步 TMDB 真实热映电影 ${movies.length} 部`,
+      `同步 TMDB 近两年热门电影 ${movies.length} 部`,
       "system"
     ]);
     await connection.commit();
@@ -248,7 +291,7 @@ api.get("/movies/recommendations", async (_req, res, next) => {
 
 api.post("/movies/sync-tmdb", requireAuth, requireRole("admin"), async (_req, res, next) => {
   try {
-    const count = await syncTmdbNowPlaying();
+    const count = await syncTmdbPopularMovies();
     res.json({ data: { synced: count } });
   } catch (error) {
     next(error);

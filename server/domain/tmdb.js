@@ -1,4 +1,7 @@
 const POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500";
+const TMDB_DISCOVER_URL = "https://api.themoviedb.org/3/discover/movie";
+const DEFAULT_PAGE_COUNT = 3;
+const DEFAULT_MOVIE_LIMIT = 60;
 
 export function mapTmdbMovie(movie, index = 0) {
   const releaseYear = Number(String(movie.release_date ?? "").slice(0, 4)) || new Date().getFullYear();
@@ -13,7 +16,7 @@ export function mapTmdbMovie(movie, index = 0) {
       : "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&h=720&fit=crop",
     trailerUrl: `https://www.themoviedb.org/movie/${movie.id}`,
     actors: "TMDB 公开电影资料",
-    genre: "真实热映",
+    genre: "近年热门",
     region: "全球/中国区",
     releaseYear,
     rating,
@@ -24,37 +27,91 @@ export function mapTmdbMovie(movie, index = 0) {
   };
 }
 
-async function requestNowPlaying(url, headers) {
-  const response = await fetch(url, { headers });
-  return response;
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
 }
 
-export async function fetchNowPlayingMovies(accessToken, apiKey) {
-  if (!accessToken && !apiKey) {
-    throw new Error("缺少 TMDB_ACCESS_TOKEN 或 TMDB_API_KEY，无法同步真实热映电影");
-  }
+export function buildDiscoverUrl(page, now = new Date()) {
+  const start = new Date(now);
+  start.setUTCFullYear(start.getUTCFullYear() - 2);
 
-  const url = new URL("https://api.themoviedb.org/3/movie/now_playing");
+  const url = new URL(TMDB_DISCOVER_URL);
   url.searchParams.set("language", "zh-CN");
   url.searchParams.set("region", "CN");
-  url.searchParams.set("page", "1");
+  url.searchParams.set("sort_by", "popularity.desc");
+  url.searchParams.set("primary_release_date.gte", formatDate(start));
+  url.searchParams.set("primary_release_date.lte", formatDate(now));
+  url.searchParams.set("include_adult", "false");
+  url.searchParams.set("include_video", "false");
+  url.searchParams.set("page", String(page));
+  return url;
+}
 
+async function requestDiscoverPage(url, accessToken, apiKey, fetchImpl) {
   let response = accessToken
-    ? await requestNowPlaying(url, {
-      Authorization: `Bearer ${accessToken}`,
-      accept: "application/json"
+    ? await fetchImpl(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        accept: "application/json"
+      }
     })
     : null;
 
   if ((!response || response.status === 401) && apiKey) {
     url.searchParams.set("api_key", apiKey);
-    response = await requestNowPlaying(url, { accept: "application/json" });
+    response = await fetchImpl(url, { headers: { accept: "application/json" } });
   }
 
   if (!response || !response.ok) {
-    throw new Error(`TMDB 同步失败：${response.status}`);
+    throw new Error(`TMDB 同步失败：${response?.status ?? "无响应"}`);
   }
 
-  const body = await response.json();
-  return body.results.map((movie, index) => mapTmdbMovie(movie, index)).slice(0, 12);
+  return response.json();
+}
+
+function isCompleteMovie(movie) {
+  return Boolean(
+    Number(movie.id) &&
+    (movie.title || movie.name) &&
+    movie.poster_path &&
+    /^\d{4}-\d{2}-\d{2}$/.test(String(movie.release_date ?? ""))
+  );
+}
+
+export async function fetchPopularMovies(accessToken, apiKey, options = {}) {
+  if (!accessToken && !apiKey) {
+    throw new Error("缺少 TMDB_ACCESS_TOKEN 或 TMDB_API_KEY，无法同步真实热门电影");
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const now = options.now ?? new Date();
+  const pageCount = options.pageCount ?? DEFAULT_PAGE_COUNT;
+  const movieLimit = options.movieLimit ?? DEFAULT_MOVIE_LIMIT;
+  const rawMovies = [];
+
+  for (let page = 1; page <= pageCount; page += 1) {
+    const body = await requestDiscoverPage(
+      buildDiscoverUrl(page, now),
+      accessToken,
+      apiKey,
+      fetchImpl
+    );
+    rawMovies.push(...(body.results ?? []));
+  }
+
+  const uniqueMovies = [];
+  const seenIds = new Set();
+
+  for (const movie of rawMovies) {
+    const tmdbId = Number(movie.id);
+    if (!isCompleteMovie(movie) || seenIds.has(tmdbId)) {
+      continue;
+    }
+    seenIds.add(tmdbId);
+    uniqueMovies.push(movie);
+  }
+
+  return uniqueMovies
+    .slice(0, movieLimit)
+    .map((movie, index) => mapTmdbMovie(movie, index));
 }
